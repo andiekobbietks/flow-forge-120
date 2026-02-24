@@ -1,89 +1,108 @@
 
 
-# LAMPForge MVP — Implementation Plan
+# Plan: Integrate StackBlitz WebContainer SDK for Real In-Browser Development Environment
 
-## Overview
-A Cognitive Engineering Platform that eliminates infrastructure friction for A-Level Digital Technology students, providing an architectural-first workflow with live code generation, in-browser execution, and AI-powered scaffolding.
+## The Problem
 
----
+The current Canvas page uses a standalone Monaco Editor component that only displays static file content — no real file system, no execution, no terminal. The user explicitly requires the **real StackBlitz WebContainer SDK** to power the code editing pane, providing an actual VS Code environment running inside WebContainers, with real file I/O, a real terminal, and live preview — exactly like Codeflow / bolt.dev.
 
-## Page 1: Landing / Intent Declaration
+## Architecture
 
-- **Natural Language Input**: A prominent text area where the learner declares their project intent (e.g., "I need a multi-user library system with a book checkout feature")
-- **Template Gallery**: Pre-built starter archetypes (Library System, E-Commerce Shop, School Management) as fallback cards
-- **"Forge It" Button**: Sends the intent to the AI engine, which parses it into entities, relationships, and CRUD operations
-- The AI returns a structured project blueprint (entities, relationships, pages, transactions)
+```text
+┌─────────────────────────────────────────────────────────┐
+│                    CanvasPage.tsx                        │
+├────────────────────┬────────────────────────────────────┤
+│  Pane A            │  Pane B                            │
+│  React Flow        │  StackBlitz Embedded Project       │
+│  Architecture      │  ┌──────────────────────────────┐  │
+│  Canvas            │  │  Full VS Code Editor         │  │
+│  (unchanged)       │  │  (via @stackblitz/sdk        │  │
+│                    │  │   embedProject)               │  │
+│                    │  │  - Real file tree             │  │
+│                    │  │  - Syntax highlighting        │  │
+│                    │  │  - Terminal (built-in)        │  │
+│                    │  │  - Live preview iframe        │  │
+│                    │  └──────────────────────────────┘  │
+├────────────────────┴────────────────────────────────────┤
+│  Bottom: LAMPForge CLI Terminal (kept for SQL animation │
+│  + pedagogical overlay — separate from WC terminal)     │
+└─────────────────────────────────────────────────────────┘
+```
 
-## Page 2: The Split-Screen Architectural Canvas (Core Experience)
+## What Changes
 
-### Pane A — Visual Architecture Blocks (Left)
-- **Interactive node-based canvas** using React Flow
-- **5-Family Taxonomy blocks** with distinct visual styles:
-  - 🔵 **Blueprint** (Entity nodes with fields, types, constraints)
-  - 🟢 **Plumbing** (Connection edges with Crow's Foot notation — 1:1, 1:M, M:M)
-  - 🟠 **Transaction** (CRUD operation blocks — Create, Read, Update, Delete)
-  - 🔴 **Forge** (Server/DB provisioning status indicators)
-  - 🟣 **Oracle** (AI feedback/validation nodes)
-- **Drag-and-drop** to connect entities with relationships
-- **Bi-directional sync**: Changes in blocks update the code; manual code edits update blocks
+### 1. Install `@stackblitz/sdk`
+Add the StackBlitz SDK package (`@stackblitz/sdk`) to `package.json`. This is the official 3kB SDK that communicates with the WebContainer runtime.
 
-### Pane B — Live Code Environment (Right)
-- **Monaco Editor** (same engine as VS Code) with syntax highlighting for SQL, PHP, HTML
-- **Tabbed file explorer** showing auto-generated project structure:
-  - `/sql/schema.sql` — Generated DDL statements
-  - `/php/db_connect.php` — Connection boilerplate
-  - `/php/crud_*.php` — CRUD operations per entity
-  - `/html/forms/` — Auto-generated forms
-- **Live preview iframe** below the editor showing the running application
+### 2. Create `src/components/canvas/WebContainerEditor.tsx`
+A new component that replaces the current Monaco Editor + file tabs in Pane B. It will:
+- Render a `<div id="stackblitz-embed">` container
+- On mount, call `sdk.embedProject('stackblitz-embed', project, options)` with the LAMPForge-generated files (SQL schema, PHP CRUD, HTML forms)
+- Configure the embed with: dark theme, editor+preview view, specific open files, hidden sidebar initially, terminal visible
+- Expose the `VM` instance via a ref/callback so the parent `CanvasPage` can programmatically:
+  - Write files when the canvas generates new code (`vm.applyFsDiff`)
+  - Read files back for bi-directional sync
+  - Get the preview URL for the live preview
 
-### Bottom Panel — LAMPForge CLI Terminal
-- **Animated SQL generation**: When a relationship is drawn on the canvas, the terminal animates the exact `CREATE TABLE` / `ALTER TABLE` / `FOREIGN KEY` SQL command character-by-character
-- **Command history** for examiner evidence
-- **SQL execution output** showing query results in tabular format
-- Students can type and run their own SQL queries here
+The project template will be `node` (WebContainers-based), with a minimal `package.json` that includes a simple HTTP server to serve the generated HTML/PHP files. For PHP execution, we include `php-wasm` as a dependency within the embedded project so PHP files can actually run inside the WebContainer.
 
-## Page 3: SQL Workbench View
+### 3. Create `src/lib/webcontainer-project.ts`
+A utility that builds the StackBlitz `Project` object from the current canvas state:
+- `buildProject(files: Record<string, string>): Project` — takes the generated file map and produces the StackBlitz project definition with `title`, `description`, `template: 'node'`, and the full `files` record
+- Includes a base `package.json` with a simple static server (e.g., `serve` or a custom `server.js`) so the preview works
+- Includes a `server.js` that serves static HTML and routes PHP through php-wasm
 
-- **Database schema visualizer** showing all tables with columns, types, and relationships (like MySQL Workbench's EER diagram)
-- **Query editor** with syntax highlighting and auto-complete
-- **Results grid** showing query output in a table
-- **Query history log** with timestamps (for WJEC evidence)
-- Powered by sql.js (SQLite in WASM) for instant in-browser execution
-- All data automatically synced to Supabase for cloud persistence and "ghost" backup
+### 4. Update `src/pages/CanvasPage.tsx`
+- Remove the Monaco `CodeEditor` component and file tabs from Pane B
+- Replace with the new `WebContainerEditor` component
+- Pass the generated files map to the embed
+- When canvas nodes change (entity added, relationship connected), call `vm.applyFsDiff()` to update files in the running WebContainer in real-time
+- Keep the bottom LAMPForge CLI terminal panel — this serves the pedagogical role of animating SQL commands and providing the LAMPForge-specific CLI experience (distinct from the WebContainer's built-in terminal which handles Node.js/npm)
 
-## Page 4: Evidence & SDLC Logger
+### 5. Update `src/pages/WorkbenchPage.tsx`
+- Replace the mock `CodeEditor` with the same approach or keep Monaco for the query editor (Monaco is fine for a single SQL editor panel — the workbench doesn't need a full WebContainer)
+- The workbench will continue using Monaco for SQL editing since it's a single-file query tool, not a full dev environment
 
-- **Automatic screenshot capture** at key development milestones
-- **Timeline view** of all changes with timestamps
-- **SQL history export** — every query run, with before/after states
-- **Iterative development log** showing the SDLC stages
-- **Export to PDF** for WJEC submission portfolio
-- All evidence auto-generated from user actions — no manual documentation needed
+### 6. Remove `src/components/canvas/CodeEditor.tsx`
+This standalone Monaco wrapper becomes unnecessary for the Canvas page. It can be kept if the WorkbenchPage still uses it for the SQL query editor (it does), so we keep the file but it's no longer used by CanvasPage.
 
----
+## Technical Details
 
-## AI-Powered Features (Throughout)
+**StackBlitz SDK `embedProject` call:**
+```text
+sdk.embedProject('container-id', {
+  title: 'LAMPForge Project',
+  description: 'Generated from architectural canvas',
+  template: 'node',
+  files: {
+    'package.json': '...',
+    'server.js': '...',
+    'sql/schema.sql': '...',
+    'php/db_connect.php': '...',
+    'html/index.html': '...',
+  }
+}, {
+  theme: 'dark',
+  view: 'editor',
+  hideExplorer: false,
+  openFile: 'sql/schema.sql',
+  terminalHeight: 30,
+})
+```
 
-- **Intent-to-Schema Translation**: Natural language → entity-relationship model → SQL DDL → PHP CRUD boilerplate, all generated via Lovable AI Gateway (swappable to local inference later)
-- **Theory of Mind Monitoring**: Track turn-taking frequency, action entropy, and time-on-task
-- **Adaptive Scaffolding**: When the system detects "stuck" behavior (high entropy, rapid clicks without progress), the CLI deploys targeted hints
-- **Comprehension Checkpoints**: Periodic micro-questions to verify the student understands the generated code
+**Bi-directional sync via VM API:**
+- `vm.applyFsDiff({ create: { 'sql/schema.sql': newContent }, destroy: [] })` — when canvas generates new SQL
+- `vm.getFsSnapshot()` — to read files back if needed for evidence logging
 
-## Technical Architecture
+**File update flow when a canvas entity is added:**
+1. User adds/connects nodes on React Flow canvas
+2. `CanvasPage` regenerates SQL/PHP from the node state
+3. Calls `vmRef.current.applyFsDiff(...)` to write updated files into the running WebContainer
+4. The embedded VS Code editor shows the updated files instantly
+5. The LAMPForge CLI terminal below animates the SQL command for pedagogical effect
 
-- **WebContainer SDK** (StackBlitz) for in-browser Node.js runtime
-- **sql.js** for in-browser SQLite execution (presenting as MySQL-like syntax)
-- **Supabase** for cloud persistence, auth, and project saving
-- **Lovable AI Gateway** for intent parsing and scaffolding (designed for future swap to local models like Arch-Router-1.5B)
-- **React Flow** for the visual node-based architecture canvas
-- **Monaco Editor** for the code editing experience
-- **Vite HMR** via WebContainers for instant preview updates
-
-## Design System
-
-- Dark IDE-inspired theme with syntax-highlighting-colored accents
-- The 5-Family Taxonomy uses distinct, accessible color coding throughout
-- Monospace fonts for code, clean sans-serif for UI
-- Animated transitions when blocks generate code (the "magical" feeling)
-- ASCII art tutor character in the CLI for scaffolding interventions
+**What the student sees:**
+- Left: The architectural canvas with draggable entity/transaction blocks
+- Right: A real VS Code editor with file explorer, syntax highlighting, integrated terminal, and live preview — all running in WebContainers
+- Bottom: The LAMPForge CLI with animated SQL generation and scaffolding hints
 
