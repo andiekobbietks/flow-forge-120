@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -15,14 +15,13 @@ import {
 import "@xyflow/react/dist/style.css";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNavigate } from "react-router-dom";
-import { Flame, Database, Code, FileCode, Plus, Play, ArrowLeft } from "lucide-react";
+import { Flame, Database, FileCode, Plus, Play, ArrowLeft } from "lucide-react";
 import EntityNode from "@/components/canvas/EntityNode";
 import TransactionNode from "@/components/canvas/TransactionNode";
 import ForgeStatusNode from "@/components/canvas/ForgeStatusNode";
 import OracleNode from "@/components/canvas/OracleNode";
-import CodeEditor from "@/components/canvas/CodeEditor";
+import WebContainerEditor, { type WebContainerEditorHandle } from "@/components/canvas/WebContainerEditor";
 import TerminalPanel from "@/components/canvas/TerminalPanel";
 
 const initialNodes: Node[] = [];
@@ -30,9 +29,9 @@ const initialEdges: Edge[] = [];
 
 const CanvasPage = () => {
   const navigate = useNavigate();
+  const editorRef = useRef<WebContainerEditorHandle>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [activeFile, setActiveFile] = useState("sql/schema.sql");
   const [terminalOutput, setTerminalOutput] = useState<string[]>([
     "LAMPForge CLI v1.0.0",
     "Type 'help' for available commands.",
@@ -88,12 +87,6 @@ const CanvasPage = () => {
     setNodes((nds) => [...nds, newNode]);
   };
 
-  const files: Record<string, string> = {
-    "sql/schema.sql": `-- LAMPForge Auto-Generated Schema\n-- Generated from architectural canvas\n\n-- Add entities to the canvas to generate SQL here`,
-    "php/db_connect.php": `<?php\n// LAMPForge Database Connection\n$host = 'localhost';\n$dbname = 'lampforge_db';\n$user = 'root';\n$pass = '';\n\ntry {\n    $pdo = new PDO("mysql:host=$host;dbname=$dbname", $user, $pass);\n    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);\n} catch(PDOException $e) {\n    die("Connection failed: " . $e->getMessage());\n}\n?>`,
-    "php/crud_entity.php": `<?php\n// LAMPForge CRUD Operations\nrequire_once 'db_connect.php';\n\n// CREATE\nfunction createRecord($data) {\n    // Generated from canvas\n}\n\n// READ\nfunction getRecords() {\n    // Generated from canvas\n}\n?>`,
-    "html/forms/index.html": `<!DOCTYPE html>\n<html>\n<head>\n    <title>LAMPForge App</title>\n</head>\n<body>\n    <h1>LAMPForge Generated Application</h1>\n    <!-- Forms will be generated from canvas entities -->\n</body>\n</html>`,
-  };
 
   return (
     <div className="dark flex h-screen flex-col bg-background text-foreground">
@@ -177,30 +170,9 @@ const CanvasPage = () => {
 
             <ResizableHandle withHandle />
 
-            {/* Pane B: Code Editor */}
+            {/* Pane B: WebContainer Editor */}
             <ResizablePanel defaultSize={50} minSize={30}>
-              <div className="flex h-full flex-col">
-                {/* File tabs */}
-                <Tabs value={activeFile} onValueChange={setActiveFile} className="flex h-full flex-col">
-                  <TabsList className="h-auto w-full justify-start gap-0 rounded-none border-b border-border bg-card p-0">
-                    {Object.keys(files).map((f) => (
-                      <TabsTrigger
-                        key={f}
-                        value={f}
-                        className="rounded-none border-b-2 border-transparent px-3 py-2 text-xs font-mono data-[state=active]:border-primary data-[state=active]:bg-transparent"
-                      >
-                        <Code className="mr-1.5 h-3 w-3" />
-                        {f.split("/").pop()}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                  {Object.entries(files).map(([path, content]) => (
-                    <TabsContent key={path} value={path} className="mt-0 flex-1">
-                      <CodeEditor value={content} language={path.endsWith(".sql") ? "sql" : path.endsWith(".php") ? "php" : "html"} />
-                    </TabsContent>
-                  ))}
-                </Tabs>
-              </div>
+              <WebContainerEditor ref={editorRef} />
             </ResizablePanel>
           </ResizablePanelGroup>
         </ResizablePanel>
