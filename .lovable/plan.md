@@ -1,108 +1,139 @@
 
 
-# Plan: Integrate StackBlitz WebContainer SDK for Real In-Browser Development Environment
+# Plan: Forge IR Compiler — Grade-Aware, Bootstrap-Based, Full Pipeline
 
-## The Problem
+## What Gets Built
 
-The current Canvas page uses a standalone Monaco Editor component that only displays static file content — no real file system, no execution, no terminal. The user explicitly requires the **real StackBlitz WebContainer SDK** to power the code editing pane, providing an actual VS Code environment running inside WebContainers, with real file I/O, a real terminal, and live preview — exactly like Codeflow / bolt.dev.
+8 files that implement the complete Pedagogy-as-Code compilation pipeline: from the Landing Page "Forge It" button through to populated React Flow canvas and generated LAMP artifacts in the WebContainer. Bootstrap 5 via CDN for all generated HTML. Grade-aware "Variable Rigor" at every compilation stage.
 
-## Architecture
+## New Files
+
+### 1. `src/lib/forge-types.ts` — The Grammar (IR + Zod Validation)
+
+The Pedagogy-as-Code Intermediate Representation with `scaffold_level` as a first-class grammar primitive:
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│                    CanvasPage.tsx                        │
-├────────────────────┬────────────────────────────────────┤
-│  Pane A            │  Pane B                            │
-│  React Flow        │  StackBlitz Embedded Project       │
-│  Architecture      │  ┌──────────────────────────────┐  │
-│  Canvas            │  │  Full VS Code Editor         │  │
-│  (unchanged)       │  │  (via @stackblitz/sdk        │  │
-│                    │  │   embedProject)               │  │
-│                    │  │  - Real file tree             │  │
-│                    │  │  - Syntax highlighting        │  │
-│                    │  │  - Terminal (built-in)        │  │
-│                    │  │  - Live preview iframe        │  │
-│                    │  └──────────────────────────────┘  │
-├────────────────────┴────────────────────────────────────┤
-│  Bottom: LAMPForge CLI Terminal (kept for SQL animation │
-│  + pedagogical overlay — separate from WC terminal)     │
-└─────────────────────────────────────────────────────────┘
+ForgeBlueprint
+├── version: "1.0"
+├── project: { name, description, dialect: "mysql" }
+├── scaffold_level: "exploratory" | "competent" | "exemplary"
+│   exploratory ≈ Grade E/D — 1NF, raw HTML, $_POST, no auth
+│   competent   ≈ Grade C/B — 2NF, Bootstrap standard, mysqli, basic login
+│   exemplary   ≈ Grade A*  — 3NF, Bootstrap advanced + tokens, PDO, sessions
+├── entities[]: { name, fields[], indexes[], audit }
+│   └── fields[]: { name, type, constraint, nullable, default?, references? }
+├── relationships[]: { name, from, to, cardinality, onDelete, onUpdate }
+├── transactions[]: { entity, operations[], auth, validation[], pagination }
+├── pages[]: { route, title, entity, layout, fields[] }
+└── config: { server, database, session }
 ```
 
-## What Changes
+Full Zod schemas with:
+- MySQL type enum validation (`VARCHAR`, `INT`, `DECIMAL`, `DATETIME`, `TEXT`, `BOOLEAN`)
+- Constraint enum (`PRIMARY KEY`, `NOT NULL`, `UNIQUE`, `DEFAULT`, `CHECK`, `FOREIGN KEY`)
+- snake_case name enforcement via regex
+- Cross-reference validation (relationships reference existing entity names)
+- `validateBlueprint(raw: unknown): ForgeBlueprint` entry point
 
-### 1. Install `@stackblitz/sdk`
-Add the StackBlitz SDK package (`@stackblitz/sdk`) to `package.json`. This is the official 3kB SDK that communicates with the WebContainer runtime.
+### 2. `src/lib/forge-ai.ts` — Local-First Inference Router
 
-### 2. Create `src/components/canvas/WebContainerEditor.tsx`
-A new component that replaces the current Monaco Editor + file tabs in Pane B. It will:
-- Render a `<div id="stackblitz-embed">` container
-- On mount, call `sdk.embedProject('stackblitz-embed', project, options)` with the LAMPForge-generated files (SQL schema, PHP CRUD, HTML forms)
-- Configure the embed with: dark theme, editor+preview view, specific open files, hidden sidebar initially, terminal visible
-- Expose the `VM` instance via a ref/callback so the parent `CanvasPage` can programmatically:
-  - Write files when the canvas generates new code (`vm.applyFsDiff`)
-  - Read files back for bi-directional sync
-  - Get the preview URL for the live preview
+- `forgeSchema(intent: string, scaffoldLevel?: string): Promise<{ blueprint: ForgeBlueprint; provider: string }>`
+- **Try 1**: `fetch("http://localhost:5273/v1/chat/completions")` — Foundry Local, OpenAI-compatible tool-calling, 10s timeout via `AbortController`
+- **Try 2**: Supabase Edge Function `forge-schema` calling Lovable AI Gateway
+- Both use identical payload with `generate_blueprint` tool definition
+- System prompt is WJEC-tuned and includes `scaffold_level` instruction: "The student targets {level}. For exploratory: flat tables, simple queries. For competent: basic normalization, standard CRUD. For exemplary: full 3NF, indexes, audit trails, prepared statements."
+- Response validated through `validateBlueprint()` — bad grammar rejected before compiler
+- Returns provider name for CLI display
 
-The project template will be `node` (WebContainers-based), with a minimal `package.json` that includes a simple HTTP server to serve the generated HTML/PHP files. For PHP execution, we include `php-wasm` as a dependency within the embedded project so PHP files can actually run inside the WebContainer.
+### 3. `src/lib/sql-generator.ts` — The Deterministic, Grade-Aware Compiler
 
-### 3. Create `src/lib/webcontainer-project.ts`
-A utility that builds the StackBlitz `Project` object from the current canvas state:
-- `buildProject(files: Record<string, string>): Project` — takes the generated file map and produces the StackBlitz project definition with `title`, `description`, `template: 'node'`, and the full `files` record
-- Includes a base `package.json` with a simple static server (e.g., `serve` or a custom `server.js`) so the preview works
-- Includes a `server.js` that serves static HTML and routes PHP through php-wasm
+Pure functions that accept `scaffold_level` to control output rigor:
 
-### 4. Update `src/pages/CanvasPage.tsx`
-- Remove the Monaco `CodeEditor` component and file tabs from Pane B
-- Replace with the new `WebContainerEditor` component
-- Pass the generated files map to the embed
-- When canvas nodes change (entity added, relationship connected), call `vm.applyFsDiff()` to update files in the running WebContainer in real-time
-- Keep the bottom LAMPForge CLI terminal panel — this serves the pedagogical role of animating SQL commands and providing the LAMPForge-specific CLI experience (distinct from the WebContainer's built-in terminal which handles Node.js/npm)
+**DDL Generator** (`generateDDL`):
+- `exemplary`: Full 3NF, `AUTO_INCREMENT`, `FOREIGN KEY ... ON DELETE CASCADE`, composite indexes, `created_at`/`updated_at` audit columns, junction tables for M:M
+- `competent`: 2NF, basic PKs/FKs, no indexes, no audit columns
+- `exploratory`: Flat 1NF tables, just `id` + columns, no FK constraints
 
-### 5. Update `src/pages/WorkbenchPage.tsx`
-- Replace the mock `CodeEditor` with the same approach or keep Monaco for the query editor (Monaco is fine for a single SQL editor panel — the workbench doesn't need a full WebContainer)
-- The workbench will continue using Monaco for SQL editing since it's a single-file query tool, not a full dev environment
+**PHP Generator** (`generatePHPCrud`):
+- `exemplary`: PDO prepared statements, `password_hash`/`password_verify`, CSRF token, `try/catch`, multi-table JOINs, input validation
+- `competent`: `mysqli` with basic `real_escape_string`, `empty()` checks, simple queries
+- `exploratory`: Direct `$_POST` usage, `SELECT *`, no error handling — authentic Grade E patterns
 
-### 6. Remove `src/components/canvas/CodeEditor.tsx`
-This standalone Monaco wrapper becomes unnecessary for the Canvas page. It can be kept if the WorkbenchPage still uses it for the SQL query editor (it does), so we keep the file but it's no longer used by CanvasPage.
+**HTML Generator** (`generateHTMLForm`):
+- `exemplary`: Bootstrap 5 CDN, `card shadow-lg`, input groups with icons, responsive `row`/`col-md-6`, validation feedback classes, custom CSS variables (design tokens)
+- `competent`: Bootstrap 5 CDN, standard `container`/`card`/`btn btn-primary`, default palette, basic navbar
+- `exploratory`: No Bootstrap — raw `<form>` with `<input>`, no CSS, `<table>` layout, Web 1.0 aesthetic
+
+Additional generators:
+- `generateDBConnect(blueprint)` — PDO or mysqli depending on level
+- `generateIndexHTML(blueprint)` — Navigation page with Bootstrap navbar (or raw links for exploratory)
+- `generateAllFiles(blueprint)` — Master compiler producing complete `Record<string, string>`
+
+### 4. `supabase/config.toml`
+
+```toml
+[functions.forge-schema]
+verify_jwt = false
+```
+
+### 5. `supabase/functions/forge-schema/index.ts` — Cloud Fallback
+
+- CORS headers per Lovable edge function pattern
+- Accepts `{ intent: string, scaffoldLevel?: string }` POST body
+- Calls `https://ai.gateway.lovable.dev/v1/chat/completions` with `LOVABLE_API_KEY` (already configured)
+- Model: `google/gemini-3-flash-preview`
+- Tool-calling with `generate_blueprint` tool — JSON schema matches `ForgeBlueprint` exactly
+- WJEC-tuned system prompt including grade-aware rigor instructions
+- Non-streaming, structured output
+- Error handling: 429 rate limit, 402 payment, malformed response
+
+## Modified Files
+
+### 6. `src/pages/LandingPage.tsx`
+
+- Import `forgeSchema` from `forge-ai.ts`
+- Add `scaffoldLevel` state with a 3-option selector (Exploratory / Competent / Exemplary) rendered as Bootstrap-style toggle buttons below the intent textarea
+- Add `forgeStatus` state for progress display: "Probing Foundry Local..." → "Falling back to cloud..." → "Validating blueprint..." → "Compiling architecture..."
+- Replace `setTimeout` mock in `handleForge` with real `forgeSchema(intent, scaffoldLevel)` call
+- Store validated `ForgeBlueprint` + provider in `sessionStorage`
+- Toast errors via `sonner`
+- Navigate to `/canvas` on success
+
+### 7. `src/pages/CanvasPage.tsx`
+
+- Import `ForgeBlueprint`, `generateAllFiles`, `generateDDL`
+- On mount `useEffect`, read `lampforge-blueprint` from `sessionStorage`
+- If blueprint exists, `populateFromBlueprint(blueprint)`:
+  - Create `EntityNode` per entity in 2-column grid (col * 350 + 100, row * 300 + 100)
+  - Create animated edges per relationship (green stroke)
+  - Create `TransactionNode` per entity's CRUD operations (200px below parent)
+  - Create `ForgeStatusNode` showing provider + scaffold level
+  - Call `generateAllFiles(blueprint)` → `editorRef.current?.applyFsDiff({ create: files })`
+  - Animate DDL in terminal line-by-line with 80ms stagger
+- Clear sessionStorage after consuming
+
+### 8. `src/lib/webcontainer-project.ts` — Minor Update
+
+- Update `getDefaultFiles()` index.html to include Bootstrap 5 CDN link by default
+
+## The Grade-Aware Compilation Matrix
+
+```text
+                    Exploratory (E/D)     Competent (C/B)       Exemplary (A/A*)
+                    ─────────────────     ───────────────       ────────────────
+SQL Schema          1NF flat tables       2NF basic FKs         3NF indexes audit
+PHP Logic           $_POST direct         mysqli escape         PDO prepared stmts
+HTML/CSS            Raw HTML no CSS       Bootstrap standard    Bootstrap + tokens
+Auth                None                  Basic login           Sessions + CSRF
+Validation          None                  empty() checks        Regex + type checks
+Error Handling      None                  Basic die()           try/catch + logging
+```
 
 ## Technical Details
 
-**StackBlitz SDK `embedProject` call:**
-```text
-sdk.embedProject('container-id', {
-  title: 'LAMPForge Project',
-  description: 'Generated from architectural canvas',
-  template: 'node',
-  files: {
-    'package.json': '...',
-    'server.js': '...',
-    'sql/schema.sql': '...',
-    'php/db_connect.php': '...',
-    'html/index.html': '...',
-  }
-}, {
-  theme: 'dark',
-  view: 'editor',
-  hideExplorer: false,
-  openFile: 'sql/schema.sql',
-  terminalHeight: 30,
-})
-```
-
-**Bi-directional sync via VM API:**
-- `vm.applyFsDiff({ create: { 'sql/schema.sql': newContent }, destroy: [] })` — when canvas generates new SQL
-- `vm.getFsSnapshot()` — to read files back if needed for evidence logging
-
-**File update flow when a canvas entity is added:**
-1. User adds/connects nodes on React Flow canvas
-2. `CanvasPage` regenerates SQL/PHP from the node state
-3. Calls `vmRef.current.applyFsDiff(...)` to write updated files into the running WebContainer
-4. The embedded VS Code editor shows the updated files instantly
-5. The LAMPForge CLI terminal below animates the SQL command for pedagogical effect
-
-**What the student sees:**
-- Left: The architectural canvas with draggable entity/transaction blocks
-- Right: A real VS Code editor with file explorer, syntax highlighting, integrated terminal, and live preview — all running in WebContainers
-- Bottom: The LAMPForge CLI with animated SQL generation and scaffolding hints
+- **Bootstrap 5 via CDN**: All generated HTML includes `<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">` and the JS bundle. No build step needed.
+- **Foundry Local**: OpenAI-compatible at `localhost:5273`. Same payload for local and cloud. 10s timeout.
+- **Tool-calling**: `generate_blueprint` tool with strict JSON schema matching Zod types. Both Gemini and Phi-4-mini support this format. `tool_choice: { type: "function", function: { name: "generate_blueprint" } }` forces structured output.
+- **Canvas layout**: 2-column grid, 350px horizontal / 300px vertical spacing from (100, 100).
+- **Terminal animation**: DDL lines pushed with `setTimeout(fn, i * 80)`.
 
