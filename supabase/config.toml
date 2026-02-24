@@ -1,0 +1,4 @@
+project_id = "pzycivilgryjyynnsiww"
+
+[functions.forge-schema]
+verify_jwt = false

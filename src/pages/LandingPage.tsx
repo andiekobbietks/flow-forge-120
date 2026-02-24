@@ -3,7 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Flame, BookOpen, ShoppingCart, GraduationCap, Sparkles, ArrowRight } from "lucide-react";
+import { Flame, BookOpen, ShoppingCart, GraduationCap, Sparkles, ArrowRight, Zap, Award, Star, Rocket } from "lucide-react";
+import { toast } from "sonner";
+import { forgeSchema, type ForgeProgress } from "@/lib/forge-ai";
+import type { ScaffoldLevel } from "@/lib/forge-types";
 
 const templates = [
   {
@@ -29,19 +32,69 @@ const templates = [
   },
 ];
 
+const scaffoldOptions: { value: ScaffoldLevel; label: string; description: string; icon: typeof Zap }[] = [
+  {
+    value: "exploratory",
+    label: "Exploratory",
+    description: "Grade E/D — 1NF, raw HTML, basic queries",
+    icon: Zap,
+  },
+  {
+    value: "competent",
+    label: "Competent",
+    description: "Grade C/B — 2NF, Bootstrap, mysqli",
+    icon: Award,
+  },
+  {
+    value: "exemplary",
+    label: "Exemplary",
+    description: "Grade A* — 3NF, PDO, sessions + CSRF",
+    icon: Star,
+  },
+  {
+    value: "rad",
+    label: "RAD 2.0",
+    description: "No grade target — just build it",
+    icon: Rocket,
+  },
+];
+
 const LandingPage = () => {
   const [intent, setIntent] = useState("");
+  const [scaffoldLevel, setScaffoldLevel] = useState<ScaffoldLevel>("rad");
   const [isForging, setIsForging] = useState(false);
+  const [forgeStatus, setForgeStatus] = useState("");
   const navigate = useNavigate();
 
-  const handleForge = (text: string) => {
+  const handleForge = async (text: string) => {
     if (!text.trim()) return;
     setIsForging(true);
-    // Store intent and navigate to canvas
-    sessionStorage.setItem("lampforge-intent", text);
-    setTimeout(() => {
-      navigate("/canvas");
-    }, 1500);
+    setForgeStatus("Initializing forge pipeline...");
+
+    try {
+      const onProgress: ForgeProgress = (status) => {
+        setForgeStatus(status);
+      };
+
+      const result = await forgeSchema(text, scaffoldLevel, onProgress);
+
+      // Store blueprint + metadata in sessionStorage
+      sessionStorage.setItem("lampforge-blueprint", JSON.stringify(result.blueprint));
+      sessionStorage.setItem("lampforge-provider", result.provider);
+      sessionStorage.setItem("lampforge-route", result.route || "schema_generation");
+
+      setForgeStatus("Compiling architecture...");
+      toast.success(`Blueprint forged via ${result.provider}`, {
+        description: `${result.blueprint.entities.length} entities, scaffold: ${scaffoldLevel}`,
+      });
+
+      setTimeout(() => navigate("/canvas"), 500);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Forge failed";
+      toast.error("Forge Error", { description: message });
+      setIsForging(false);
+      setForgeStatus("");
+    }
   };
 
   return (
@@ -83,6 +136,30 @@ const LandingPage = () => {
           </p>
         </div>
 
+        {/* Scaffold Level Selector */}
+        <div className="mb-6">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-muted-foreground">
+            Target Level
+          </h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {scaffoldOptions.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setScaffoldLevel(opt.value)}
+                className={`flex flex-col items-center gap-1 rounded-lg border px-3 py-3 text-center transition-all ${
+                  scaffoldLevel === opt.value
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:bg-accent"
+                }`}
+              >
+                <opt.icon className={`h-4 w-4 ${scaffoldLevel === opt.value ? "text-primary" : ""}`} />
+                <span className="text-sm font-medium">{opt.label}</span>
+                <span className="text-[10px] leading-tight opacity-70">{opt.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Intent Input */}
         <div className="mb-12">
           <div className="relative rounded-lg border border-border bg-card p-1">
@@ -93,9 +170,16 @@ const LandingPage = () => {
               className="min-h-[120px] resize-none border-0 bg-transparent font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <div className="flex items-center justify-between border-t border-border px-3 py-2">
-              <span className="text-xs text-muted-foreground">
-                {intent.length > 0 ? `${intent.split(" ").filter(Boolean).length} words` : "Natural language → Architecture → Code"}
-              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground">
+                  {intent.length > 0 ? `${intent.split(" ").filter(Boolean).length} words` : "Natural language → Architecture → Code"}
+                </span>
+                {forgeStatus && (
+                  <span className="text-xs font-mono text-primary animate-pulse">
+                    {forgeStatus}
+                  </span>
+                )}
+              </div>
               <Button
                 onClick={() => handleForge(intent)}
                 disabled={!intent.trim() || isForging}
