@@ -111,14 +111,17 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LAMPForge App</title>
-    <style>
-        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-        h1 { color: #3b82f6; }
-    </style>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
+<nav class="navbar navbar-dark bg-dark mb-4">
+  <div class="container"><a class="navbar-brand" href="#">LAMPForge App</a></div>
+</nav>
+<div class="container">
     <h1>LAMPForge Generated Application</h1>
-    <p>Forms will be generated from canvas entities.</p>
+    <p class="text-muted">Add entities to the canvas to generate your application.</p>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 `,

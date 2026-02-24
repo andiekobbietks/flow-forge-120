@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo, useRef } from "react";
+import { useCallback, useState, useMemo, useRef, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -23,6 +23,8 @@ import ForgeStatusNode from "@/components/canvas/ForgeStatusNode";
 import OracleNode from "@/components/canvas/OracleNode";
 import WebContainerEditor, { type WebContainerEditorHandle } from "@/components/canvas/WebContainerEditor";
 import TerminalPanel from "@/components/canvas/TerminalPanel";
+import type { ForgeBlueprint } from "@/lib/forge-types";
+import { generateAllFiles, generateDDL } from "@/lib/sql-generator";
 
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
@@ -38,6 +40,7 @@ const CanvasPage = () => {
     "",
     "lampforge> ",
   ]);
+  const hasPopulated = useRef(false);
 
   const nodeTypes = useMemo(
     () => ({
@@ -49,10 +52,148 @@ const CanvasPage = () => {
     []
   );
 
+  // ── Populate from blueprint on mount ──────────────────────────
+  useEffect(() => {
+    if (hasPopulated.current) return;
+
+    const raw = sessionStorage.getItem("lampforge-blueprint");
+    if (!raw) return;
+
+    hasPopulated.current = true;
+    const provider = sessionStorage.getItem("lampforge-provider") || "unknown";
+    const route = sessionStorage.getItem("lampforge-route") || "schema_generation";
+
+    // Clean up sessionStorage
+    sessionStorage.removeItem("lampforge-blueprint");
+    sessionStorage.removeItem("lampforge-provider");
+    sessionStorage.removeItem("lampforge-route");
+
+    let blueprint: ForgeBlueprint;
+    try {
+      blueprint = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    populateFromBlueprint(blueprint, provider, route);
+  }, []);
+
+  const populateFromBlueprint = (
+    blueprint: ForgeBlueprint,
+    provider: string,
+    route: string
+  ) => {
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+
+    // Entity nodes in 2-column grid
+    blueprint.entities.forEach((entity, i) => {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const x = col * 350 + 100;
+      const y = row * 300 + 100;
+
+      newNodes.push({
+        id: `entity-${entity.name}`,
+        type: "entity",
+        position: { x, y },
+        data: {
+          label: entity.name,
+          fields: entity.fields,
+        },
+      });
+
+      // Transaction node 200px below each entity
+      const txn = blueprint.transactions.find((t) => t.entity === entity.name);
+      if (txn) {
+        newNodes.push({
+          id: `txn-${entity.name}`,
+          type: "transaction",
+          position: { x: x + 50, y: y + 200 },
+          data: {
+            label: `${entity.name} CRUD`,
+            operation: txn.operations.join(", "),
+          },
+        });
+
+        newEdges.push({
+          id: `edge-entity-txn-${entity.name}`,
+          source: `entity-${entity.name}`,
+          target: `txn-${entity.name}`,
+          animated: true,
+          style: { stroke: "hsl(32, 95%, 60%)" },
+        });
+      }
+    });
+
+    // Relationship edges
+    for (const rel of blueprint.relationships) {
+      newEdges.push({
+        id: `edge-rel-${rel.name}`,
+        source: `entity-${rel.from}`,
+        target: `entity-${rel.to}`,
+        animated: true,
+        label: `${rel.cardinality}`,
+        style: { stroke: "hsl(142, 72%, 50%)" },
+      });
+    }
+
+    // Forge status node
+    newNodes.push({
+      id: "forge-status",
+      type: "forgeStatus",
+      position: { x: 100, y: -80 },
+      data: {
+        label: `${provider} | ${blueprint.scaffold_level} | ${route}`,
+      },
+    });
+
+    setNodes(newNodes);
+    setEdges(newEdges);
+
+    // Generate files and push to editor
+    const files = generateAllFiles(blueprint);
+    setTimeout(() => {
+      editorRef.current?.applyFsDiff(files);
+    }, 2000);
+
+    // Animate DDL in terminal
+    const ddl = generateDDL(blueprint);
+    const ddlLines = ddl.split("\n");
+    setTerminalOutput((prev) => [
+      ...prev,
+      `-- Blueprint received from ${provider}`,
+      `-- Scaffold level: ${blueprint.scaffold_level}`,
+      `-- Entities: ${blueprint.entities.map((e) => e.name).join(", ")}`,
+      "",
+    ]);
+
+    ddlLines.forEach((line, i) => {
+      setTimeout(() => {
+        setTerminalOutput((prev) => [...prev, line]);
+      }, i * 80);
+    });
+
+    // Final status
+    setTimeout(() => {
+      setTerminalOutput((prev) => [
+        ...prev,
+        "",
+        `-- ✓ Schema compiled (${blueprint.entities.length} tables)`,
+        `-- ✓ PHP CRUD generated`,
+        `-- ✓ HTML forms generated`,
+        `-- ✓ Files pushed to WebContainer`,
+        "",
+        "lampforge> ",
+      ]);
+    }, ddlLines.length * 80 + 200);
+  };
+
+  // ── Manual interactions ───────────────────────────────────────
+
   const onConnect = useCallback(
     (params: Connection) => {
       setEdges((eds) => addEdge({ ...params, animated: true, style: { stroke: "hsl(142, 72%, 50%)" } }, eds));
-      // Animate SQL in terminal
       const sql = `ALTER TABLE ... ADD FOREIGN KEY (...) REFERENCES ...;`;
       setTerminalOutput((prev) => [...prev, `-- Relationship created`, sql, "", "lampforge> "]);
     },
@@ -86,7 +227,6 @@ const CanvasPage = () => {
     };
     setNodes((nds) => [...nds, newNode]);
   };
-
 
   return (
     <div className="dark flex h-screen flex-col bg-background text-foreground">
