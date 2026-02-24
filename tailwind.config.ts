@@ -13,6 +13,10 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["Inter", "sans-serif"],
+        mono: ["JetBrains Mono", "monospace"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -57,6 +61,23 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // 5-Family Taxonomy
+        forge: {
+          blueprint: "hsl(var(--forge-blueprint))",
+          plumbing: "hsl(var(--forge-plumbing))",
+          transaction: "hsl(var(--forge-transaction))",
+          forge: "hsl(var(--forge-forge))",
+          oracle: "hsl(var(--forge-oracle))",
+        },
+        surface: {
+          elevated: "hsl(var(--surface-elevated))",
+          code: "hsl(var(--surface-code))",
+        },
+        terminal: {
+          bg: "hsl(var(--terminal-bg))",
+          fg: "hsl(var(--terminal-fg))",
+          cursor: "hsl(var(--terminal-cursor))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -65,20 +86,12 @@ export default {
       },
       keyframes: {
         "accordion-down": {
-          from: {
-            height: "0",
-          },
-          to: {
-            height: "var(--radix-accordion-content-height)",
-          },
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
         },
         "accordion-up": {
-          from: {
-            height: "var(--radix-accordion-content-height)",
-          },
-          to: {
-            height: "0",
-          },
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
         },
       },
       animation: {
